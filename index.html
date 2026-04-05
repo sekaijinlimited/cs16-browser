@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Counter-Strike 1.6 - Browser Edition</title>
     <style>
         body {
@@ -91,7 +94,7 @@
             background: #ffaa00;
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/xash3d-fwgs@latest/dist/raw.js"></script>
+    <script src="./raw.js"></script>
 </head>
 <body>
     <div id="loading-overlay">
@@ -100,9 +103,18 @@
             <div id="progress-bar"></div>
         </div>
         <div id="loading-status">Preparing to load...</div>
-        <button id="fullscreen-btn">Go Fullscreen</button>
     </div>
     <canvas id="canvas"></canvas>
+    <div id="engine-log" style="position:fixed;bottom:0;left:0;right:0;height:150px;background:rgba(0,0,0,0.9);color:#0f0;font-family:monospace;font-size:11px;overflow-y:auto;z-index:100;padding:5px;display:none;"></div>
+    <script>
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F2') {
+                e.preventDefault();
+                const log = document.getElementById('engine-log');
+                log.style.display = log.style.display === 'none' ? 'block' : 'none';
+            }
+        });
+    </script>
 
     <script type="module">
         import JSZip from 'https://cdn.skypack.dev/jszip@3.10.1';
@@ -123,15 +135,6 @@
             const canvas = document.getElementById('canvas');
             const fullscreenBtn = document.getElementById('fullscreen-btn');
 
-            fullscreenBtn.addEventListener('click', () => {
-                if (canvas.requestFullscreen) {
-                    canvas.requestFullscreen();
-                } else if (canvas.webkitRequestFullscreen) {
-                    canvas.webkitRequestFullscreen();
-                } else if (canvas.msRequestFullscreen) {
-                    canvas.msRequestFullscreen();
-                }
-            });
 
             try {
                 updateStatus("Fetching game assets...");
@@ -155,24 +158,40 @@
                     updateStatus(`Loading files... (${loaded}/${totalFiles})`);
                 }));
 
+                updateStatus("Loading extras...");
+                const [valveExtras, cstrikeExtras] = await Promise.all([
+                    fetch('./valve_extras.pk3').then(r => r.arrayBuffer()).then(b => new Uint8Array(b)),
+                    fetch('./cstrike_extras.pk3').then(r => r.arrayBuffer()).then(b => new Uint8Array(b)),
+                ]);
+                files['/rodir/valve/extras.pk3'] = valveExtras;
+                files['/rodir/cstrike/extras.pk3'] = cstrikeExtras;
+
                 updateStatus("Initializing game engine...");
 
+                const logEl = document.getElementById('engine-log');
+                logEl.style.display = 'block';
+                function engineLog(msg, color) {
+                    const line = document.createElement('div');
+                    line.style.color = color || '#0f0';
+                    line.textContent = msg;
+                    logEl.appendChild(line);
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+
                 Xash3D({
-                    arguments: ['-windowed', '-game', 'cstrike', '+_vgui_menus', '0'], 
+                    arguments: ['-windowed', '-ref', 'webgl2', '-game', 'cstrike', '+_vgui_menus', '0'],
                     canvas,
-                    ctx: canvas.getContext('webgl2', {
-                        alpha: false,
-                        depth: true,
-                        stencil: true,
-                        antialias: true
-                    }),
+                    print: (text) => { console.log(text); engineLog(text); },
+                    printErr: (text) => { console.error(text); engineLog(text, '#f44'); },
                     dynamicLibraries: [
                         "filesystem_stdio.wasm",
-                        "libref_gles3compat.wasm",
+                        "libref_webgl2.wasm",
                         "cl_dlls/menu_emscripten_wasm32.wasm",
-                        "dlls/cs_emscripten_wasm32.so",
+                        "dlls/cs_emscripten_wasm32.wasm",
                         "cl_dlls/client_emscripten_wasm32.wasm",
                         "/rwdir/filesystem_stdio.so",
+                        "/rodir/filesystem_stdio.wasm",
+                        "libvgui_support.wasm",
                     ],
                     onRuntimeInitialized: function () {
                         Object.keys(files).forEach(k => {
@@ -183,33 +202,19 @@
                         this.FS.chdir('/rodir');
 
                         updateProgress(100);
-                        updateStatus("Ready! Click 'Go Fullscreen' to play.");
-                        fullscreenBtn.style.display = 'inline-block';
-
-                        fullscreenBtn.addEventListener('click', () => {
-                            overlay.style.opacity = 0;
-                            setTimeout(() => overlay.remove(), 500);
-                            canvas.style.opacity = 1;
-                        });
+                        overlay.style.opacity = 0;
+                        setTimeout(() => overlay.remove(), 500);
+                        canvas.style.opacity = 1;
                     },
                     locateFile: (p) => {
-                        switch (p) {
-                            case 'xash.wasm':
-                                return 'https://cdn.jsdelivr.net/npm/xash3d-fwgs@latest/dist/xash.wasm';
-                            case '/rwdir/filesystem_stdio.so':
-                            case 'filesystem_stdio.wasm':
-                                return 'https://cdn.jsdelivr.net/npm/xash3d-fwgs@latest/dist/filesystem_stdio.wasm';
-                            case 'libref_gles3compat.wasm':
-                                return 'https://cdn.jsdelivr.net/npm/xash3d-fwgs@latest/dist/libref_gles3compat.wasm';
-                            case 'cl_dlls/menu_emscripten_wasm32.wasm':
-                                return 'https://cdn.jsdelivr.net/npm/cs16-client@latest/dist/cl_dll/menu_emscripten_wasm32.wasm';
-                            case 'dlls/cs_emscripten_wasm32.so':
-                                return 'https://cdn.jsdelivr.net/npm/cs16-client@latest/dist/dlls/cs_emscripten_wasm32.so';
-                            case 'cl_dlls/client_emscripten_wasm32.wasm':
-                                return 'https://cdn.jsdelivr.net/npm/cs16-client@latest/dist/cl_dll/client_emscripten_wasm32.wasm';
-                            default:
-                                return p;
-                        }
+                        engineLog('[locateFile] ' + p, '#ff0');
+                        if (p.includes('filesystem_stdio')) return './filesystem_stdio.wasm';
+                        if (p.includes('libref_webgl2') || p.includes('libref_gles3compat')) return './libref_webgl2.wasm';
+                        if (p.includes('cs_emscripten_wasm32')) return './dlls/cs_emscripten_wasm32.wasm';
+                        if (p.includes('client_emscripten_wasm32')) return './cl_dlls/client_emscripten_wasm32.wasm';
+                        if (p.includes('menu_emscripten_wasm32') || p.includes('libvgui_support')) return './cl_dlls/menu_emscripten_wasm32.wasm';
+                        if (p === 'xash.wasm') return './xash.wasm';
+                        return p;
                     },
                 });
             } catch (e) {

@@ -1,3 +1,6 @@
-get_cs_assets/cs
-get_cs_assets/steamcmd
+# Game assets (proprietary Valve content)
 valve.zip
+get_cs_assets/cs/
+get_cs_assets/steamcmd/
+get_cs_assets/Frameworks/
+*.tar.gz
